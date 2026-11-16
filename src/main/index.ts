@@ -114,11 +114,12 @@ export default definePluginMain({ id: PLUGIN_ID }, ({ host, actions }) => {
    * der Anfangsbestand aus einem Abschluss stammt; wird bei jedem Laden neu gerechnet, damit spätes Abhaken
    * im alten Jahr sofort im neuen ankommt.
    */
-  const vorjahrOffen = async (folder: string, stamm: Stammdaten, jahr: number, tiefe = 0): Promise<number> => {
-    if (tiefe > 50) return 0
-    const vj = await loadJahr(folder, jahr - 1)
-    if (!vj?.abschluss) return 0
-    const erbe = await vorjahrOffen(folder, stamm, jahr - 1, tiefe + 1)
+  const vorjahrOffen = async (folder: string, stamm: Stammdaten, j: Jahr, tiefe = 0): Promise<number> => {
+    if (tiefe > 50 || !j.anfangAusAbschluss) return 0
+    const vj = await loadJahr(folder, j.jahr - 1)
+    // Nur wenn der Anfangsbestand unverändert aus GENAU diesem Abschluss stammt (F24).
+    if (!vj?.abschluss || vj.abschluss.id !== j.anfangAusAbschluss) return 0
+    const erbe = await vorjahrOffen(folder, stamm, vj, tiefe + 1)
     return uebersicht(stamm, vj, erbe).guthaben.offen
   }
 
@@ -136,7 +137,7 @@ export default definePluginMain({ id: PLUGIN_ID }, ({ host, actions }) => {
       const folge = await loadJahr(folder, jahr + 1)
       if (st.abschlussUnvollstaendig(j, folge)) warnung = `Der Abschluss ${jahr} ist nicht vollständig: ${jahr + 1} hat bereits Überträge, ${jahr} ist aber nicht gesperrt. Bitte den Abschluss erneut ausführen.`
     }
-    return { stamm, jahr: j, uebersicht: j ? uebersicht(stamm, j, await vorjahrOffen(folder, stamm, j.jahr)) : null, warnung }
+    return { stamm, jahr: j, uebersicht: j ? uebersicht(stamm, j, await vorjahrOffen(folder, stamm, j)) : null, warnung }
   }
 
   type P = Record<string, unknown> & { folder: string; jahr: number }
@@ -272,7 +273,7 @@ export default definePluginMain({ id: PLUGIN_ID }, ({ host, actions }) => {
       qifCache.set(token, { name, bytes: datei.bytes, konto: r.konto, buchungen: r.buchungen })
       const kategorien = [...new Set(r.buchungen.map(b => b.kategorie))].sort()
       const zuordnung = vorschlagZuordnung(stamm, j, kategorien)
-      return { token, name, konto: r.konto, probleme: r.probleme, ignoriert: r.ignoriert, summe: r.summe, kategorien, zuordnung, plan: st.qifPlan(stamm, j, r.konto, r.buchungen, zuordnung) }
+      return { token, name, konto: r.konto, probleme: r.probleme, ignoriert: r.ignoriert, summe: r.summe, kategorien, zuordnung, plan: st.qifPlan(stamm, j, r.konto, r.buchungen, zuordnung, name) }
     }),
   )
 
@@ -283,7 +284,7 @@ export default definePluginMain({ id: PLUGIN_ID }, ({ host, actions }) => {
       if (!c) throw new Error('Der Import ist abgelaufen. Bitte die Datei erneut wählen.')
       const stamm = await loadStamm(p.folder)
       const j = await mustJahr(p.folder, p.jahr)
-      return st.qifPlan(stamm, j, c.konto, c.buchungen, (p.zuordnung as Record<string, string>) ?? {})
+      return st.qifPlan(stamm, j, c.konto, c.buchungen, (p.zuordnung as Record<string, string>) ?? {}, c.name)
     }),
   )
 
@@ -295,7 +296,7 @@ export default definePluginMain({ id: PLUGIN_ID }, ({ host, actions }) => {
       const zuordnung = (p.zuordnung as Record<string, string>) ?? {}
       const stamm = await loadStamm(p.folder)
       const j = await mustJahr(p.folder, p.jahr)
-      const plan = st.qifPlan(stamm, j, c.konto, c.buchungen, zuordnung)
+      const plan = st.qifPlan(stamm, j, c.konto, c.buchungen, zuordnung, c.name)
       const r = st.qifUebernehmen(j, c.name, plan, { konfliktNeueNummer: (p.konfliktNeueNummer as number[]) ?? [] }, ctx())
       // Originaldatei unverändert ins Archiv (nie überschreiben).
       let arch = `${p.folder}/Archiv-Quicken/${c.name}`

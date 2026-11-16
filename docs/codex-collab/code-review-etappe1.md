@@ -49,6 +49,23 @@ Adversariales Review des Codes von Etappe 1 (Commit `c514404`) gegen `docs/baupl
 ### F23 — Abgleich zeigt Ausgaben-Storno mit doppeltem Minus
 **Schwere:** niedrig. **Beleg:** `src/renderer/Buchungen.tsx:272-283`; `src/geld.ts:10-16`. **Fehlerszenario:** Eine Ausgaben-Gegenbuchung über 20,00 € hat `stornoVon`. In der Abgleich-Tabelle setzt die Zelle ein führendes `−` für die Ausgabenstelle und übergibt zugleich `-rest` an `formatCent`, das selbst `−` ergänzt. Angezeigt wird `−−20,00` statt `+20,00` als Rückfluss. **Vorschlag:** Ein einziges vorzeichenrichtiges Cent-Ergebnis aus Bereich und Storno berechnen und einmal formatieren. [OFFEN]
 
+### Nachprüfung Commit 3c21074
+
+- F13: bestätigt behoben; der Kreis-Stand erbt offene Salden abgeschlossener Vorjahre und reagiert auf spätes Abhaken (`src/main/index.ts:117-139`).
+- F14: bestätigt behoben; erneutes Anlegen eines vorhandenen Jahres repariert die fehlende Jahresliste (`src/main/index.ts:129-133,185-194`).
+- F15: NICHT behoben, weil der Vorkommenszähler je QIF-Datei neu bei 1 beginnt und der Schlüssel den Dateinamen nicht enthält (`src/store.ts:327-342`): Ein zweiter, eigenständiger Import mit gleichem Konto/Datum/Betrag/Empfänger ohne Nummer wird als Duplikat verworfen.
+- F16: bestätigt behoben; Stelle, Eindeutigkeit und Betragsform werden vor dem Schreiben geprüft (`src/store.ts:409-419`, `manifest.json:789-829`).
+- F17: bestätigt behoben; verwendete Stellen dürfen auch nach Jahresabschluss nicht mehr gelöscht werden (`src/store.ts:53-58`, `src/model.ts:147-150`).
+- F18: bestätigt behoben; `stamm` ist Pflicht und eine vorhandene Gliederung kann nicht vollständig geleert werden (`manifest.json:66-85`, `src/store.ts:48-52`).
+- F19: bestätigt behoben; Zieljahre mit Ansätzen, Änderungen oder Sperre werden vor dem ersten Schreibzugriff abgewiesen (`src/main/index.ts:339-353`).
+- F20: bestätigt behoben; eine neue Unterstelle unter einer direkt bebuchten Gruppe wird abgewiesen (`src/store.ts:63-71`).
+- F21: bestätigt behoben; der UTC-Rückvergleich lehnt den 30. Februar ab (`src/model.ts:138-145`).
+- F22: NICHT behoben, weil beim Wiederholen nach einem Fehler zwischen den beiden Jahresdateien `schonDa` die vorhandene Folgejahr-Vormerkung überspringt, `ziel` leer bleibt und das Original ohne `uebertragenNach` gesperrt wird (`src/store.ts:435-458`, `src/main/index.ts:390-393`). Nach Entsperren lässt sich ein bereits übertragenes Original außerdem über `anordnen` aktivieren oder über `loescheVormerkung` löschen (`src/store.ts:147-153,189-199`).
+- F23: bestätigt behoben; der Abgleich berechnet das Vorzeichen vor dem einmaligen Formatieren (`src/renderer/Buchungen.tsx:273-283`).
+
+### F24 — Manuell korrigierter Anfangsbestand wird in der Kreis-Sicht nochmals korrigiert
+**Schwere:** hoch. **Beleg:** `src/main/index.ts:112-123,214-235`; `src/rechnen.ts:128-138`; `src/renderer/Auswertung.tsx:138-146`. **Fehlerszenario:** 2026 endet nach einer noch unbestätigten Ausgabe von 20,00 € mit eigenem Stand 80,00 € und Kreis-Stand 100,00 €. Der Abschluss setzt 2027 auf 80,00 €; der Nutzer korrigiert den Anfangsbestand 2027 anhand der Kreisliste auf 100,00 € (wie die Oberfläche erlaubt). `vorjahrOffen` liefert weiterhin −20,00 €, daher zeigt die Kreis-Sicht 2027 nun 120,00 € statt 100,00 €. **Vorschlag:** Herkunft und Korrektur des Anfangsbestands speichern; den offenen Vorjahressaldo nur auf den tatsächlich aus dem Abschluss übernommenen eigenen Anfangsbestand anwenden oder beide Anfangsstände getrennt führen. [OFFEN]
+
 ## Claude-Antwort
 
 Alle Findings gegengeprüft (trägt), vom Nutzer zur Umsetzung freigegeben. Belege: `npm test` 56 grün; Main-Ebene zusätzlich mit simuliertem Host gegen echte Dateien (lokal, nicht im Repo).
@@ -66,4 +83,9 @@ Alle Findings gegengeprüft (trägt), vom Nutzer zur Umsetzung freigegeben. Bele
 - F23 [ADRESSIERT] Vorzeichen einmal berechnet, einmal formatiert.
 
 ## Status
-Runde 1 umgesetzt; Nachprüfung durch Codex angefragt.
+Runde 2 umgesetzt (F15, F22, F24); 58 Tests.
+
+### Runde 2 (Claude)
+- F15 [ADRESSIERT] Schlüssel merkt sich die Herkunftsdatei: gleiche Datei = `doppelt`, andere Datei = `konflikt` mit Hinweis, Übernahme nur nach Ankreuzen (Standard: nicht übernehmen). Test „andere Datei … nachfragen“.
+- F22 [ADRESSIERT] `ziel` enthält auch früher übernommene Vormerkungen des Folgejahres; `anordnen`, `loescheVormerkung`, `zurueckziehen` lehnen übertragene Originale ab. Test „Wiederholung nach Abbruch …“.
+- F24 [ADRESSIERT] Folgejahr speichert `anfangAusAbschluss`; Main vererbt offene Posten nur bei passender Abschluss-ID; Handkorrektur entfernt die Markierung. Simuliert: Korrektur auf Kreiswert → Kreis-Sicht = unsere Sicht, keine Doppelkorrektur.

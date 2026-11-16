@@ -149,6 +149,7 @@ export function loescheVormerkung(j: Jahr, id: string, ctx: Ctx): Jahr {
   const b = j.buchungen.find(x => x.id === id)
   if (!b) throw new Error('Buchung nicht gefunden.')
   if (b.status !== 'vorgemerkt') throw new Error('Nur Vormerkungen lassen sich löschen. Angeordnete Buchungen bitte zurückziehen oder stornieren.')
+  if (b.uebertragenNach) throw new Error(`Diese Vormerkung wurde nach ${b.uebertragenNach.jahr} übertragen.`)
   if (b.beleg) throw new Error('Diese Vormerkung hat einen Beleg. Bitte erst den Beleg lösen oder sie zurückziehen.')
   return log({ ...j, buchungen: j.buchungen.filter(x => x.id !== id) }, ctx, { aktion: 'vormerkung.loeschen', ref: b.belegnr, vorher: b })
 }
@@ -159,6 +160,7 @@ export function zurueckziehen(j: Jahr, id: string, grund: string, ctx: Ctx): Jah
   const b = j.buchungen.find(x => x.id === id)
   if (!b) throw new Error('Buchung nicht gefunden.')
   if (b.zurueckgezogen) return j
+  if (b.uebertragenNach) throw new Error(`Diese Vormerkung wurde nach ${b.uebertragenNach.jahr} übertragen — bitte dort bearbeiten.`)
   if (bestaetigt(j, id) > 0) throw new Error('Der Kreis hat diese Buchung schon (teilweise) gebucht. Bitte stornieren — die Gegenbuchung wird dann ebenfalls abgeglichen.')
   if (b.stornoVon || b.storniertDurch) throw new Error('Storno-Buchungen lassen sich nicht zurückziehen.')
   if (!grund.trim()) throw new Error('Bitte einen Grund angeben.')
@@ -191,7 +193,7 @@ export function anordnen(j: Jahr, ids: string[], ctx: Ctx): Jahr {
   const set = new Set(ids)
   let n = 0
   const buchungen = j.buchungen.map(b => {
-    if (!set.has(b.id) || b.status !== 'vorgemerkt' || b.zurueckgezogen) return b
+    if (!set.has(b.id) || b.status !== 'vorgemerkt' || b.zurueckgezogen || b.uebertragenNach) return b
     n++
     return { ...b, status: 'angeordnet' as const, angeordnetAm: heute(ctx) }
   })
@@ -310,7 +312,10 @@ export function setAnfangsbestand(j: Jahr, betrag: Cent, ctx: Ctx): Jahr {
   offen(j, 'Den Anfangsbestand ändern')
   if (!Number.isSafeInteger(betrag)) throw new Error('Ungültiger Betrag.')
   if (j.anfangsbestand === betrag) return j
-  return log({ ...j, anfangsbestand: betrag }, ctx, { aktion: 'anfangsbestand', vorher: j.anfangsbestand, nachher: betrag })
+  // Von Hand gesetzt: gilt als mit dem Kreis abgestimmt; offene Posten des Vorjahres werden nicht mehr vererbt (F24).
+  const { anfangAusAbschluss: _a, ...rest } = j
+  void _a
+  return log({ ...rest, anfangsbestand: betrag }, ctx, { aktion: 'anfangsbestand', vorher: j.anfangsbestand, nachher: betrag })
 }
 
 // ─── QIF-Import ──────────────────────────────────────────────────────────────
@@ -324,9 +329,10 @@ export interface QifPlanZeile {
 }
 
 /** Vorschau: was würde der Import tun? Schreibt nichts. */
-export function qifPlan(stamm: Stammdaten, j: Jahr, konto: string, buchungen: QifBuchung[], zuordnung: Record<string, string>): QifPlanZeile[] {
+export function qifPlan(stamm: Stammdaten, j: Jahr, konto: string, buchungen: QifBuchung[], zuordnung: Record<string, string>, datei: string): QifPlanZeile[] {
   const stellen = stellenFuer(stamm, j)
-  const vorhandeneSchluessel = new Set(j.buchungen.map(b => b.qif?.schluessel).filter(Boolean))
+  // Schlüssel → Datei, aus der er übernommen wurde. Gleiche Datei = Wiederimport; andere Datei = nachfragen (F15).
+  const vorhandeneSchluessel = new Map(j.buchungen.filter(b => b.qif).map(b => [b.qif!.schluessel, b.qif!.datei]))
   const vorhandeneNummern = new Set(j.buchungen.map(b => b.belegnr))
   // Gleich aussehende Sätze innerhalb einer Datei sind verschiedene Buchungen (F15): mitzählen.
   const vorkommen = new Map<string, number>()
@@ -339,10 +345,11 @@ export function qifPlan(stamm: Stammdaten, j: Jahr, konto: string, buchungen: Qi
     const s = stelleId ? stellen.find(x => x.id === stelleId) : undefined
     const z = (aktion: QifPlanZeile['aktion'], hinweis?: string): QifPlanZeile => ({ q, stelleId: s ? s.id : null, aktion, hinweis, schluessel })
     if (Number(q.datum.slice(0, 4)) !== j.jahr) return z('falschesJahr', `Datum ${q.datum} liegt nicht in ${j.jahr}`)
-    if (vorhandeneSchluessel.has(schluessel)) return z('doppelt', 'bereits übernommen')
+    if (vorhandeneSchluessel.get(schluessel) === datei) return z('doppelt', 'bereits übernommen')
     if (!s || !bebuchbar(stellen, s)) return z('ohneZuordnung', `Kategorie „${q.kategorie || '(leer)'}“ ist keiner bebuchbaren Stelle zugeordnet`)
     const richtig = (s.bereich === 'einnahme') === (q.betrag > 0)
     if (!richtig || q.betrag === 0) return z('richtungPasstNicht', `${q.betrag > 0 ? 'Einnahme' : 'Ausgabe'} auf ${s.bereich === 'einnahme' ? 'Einnahme' : 'Ausgaben'}stelle „${s.name}“`)
+    if (vorhandeneSchluessel.has(schluessel)) return z('konflikt', `Gleiche Buchung schon aus „${vorhandeneSchluessel.get(schluessel)}“ übernommen — nur ankreuzen, wenn es wirklich eine zweite ist`)
     if (q.nummer && vorhandeneNummern.has(q.nummer)) return z('konflikt', `Belegnummer ${q.nummer} ist schon vergeben (andere Buchung)`)
     if (q.nummer) vorhandeneNummern.add(q.nummer)
     return z('neu')
@@ -442,10 +449,11 @@ export function abschliessen(stamm: Stammdaten, alt: Jahr, folgeVorher: Jahr | n
     void _u
     wandern.push({ ...rest, id: ctx.neueId(), belegnr: belegNr(fj, nr++), datum: b.datum < datum ? datum : b.datum, uebernommenAus: { jahr: alt.jahr, id: b.id } })
   }
-  const ziel = new Map(wandern.map(w => [w.uebernommenAus!.id, w]))
+  // Auch früher übernommene (Wiederholung nach Abbruch zwischen den beiden Dateien) markieren das Original.
+  const ziel = new Map([...folge.buchungen, ...wandern].filter(w => w.uebernommenAus?.jahr === alt.jahr).map(w => [w.uebernommenAus!.id, w]))
 
   folge = log(
-    { ...folge, anfangsbestand: v.endstand, aenderungen: [...folge.aenderungen, ...uebertraege], buchungen: [...folge.buchungen, ...wandern], naechsteNr: nr },
+    { ...folge, anfangsbestand: v.endstand, anfangAusAbschluss: abschlussId, aenderungen: [...folge.aenderungen, ...uebertraege], buchungen: [...folge.buchungen, ...wandern], naechsteNr: nr },
     ctx,
     { aktion: 'abschluss.uebernahme', ref: abschlussId, nachher: { ausJahr: alt.jahr, anfangsbestand: v.endstand, uebertraege: uebertraege.length, vormerkungen: wandern.length, ersetzt: [...frueher] } },
   )

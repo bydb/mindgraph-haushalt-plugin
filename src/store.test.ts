@@ -103,7 +103,7 @@ describe('QIF-Import (F07, F08)', () => {
   it('übernimmt als angeordnet, setzt Nummer fort, erkennt Wiederimport', () => {
     const c = ctx()
     const qs = [q(1, {}), q(2, { betrag: 500_00, kategorie: 'Zuwendung' }), q(3, { kategorie: 'Unbekannt' }), q(4, { kategorie: 'Gruppe' }), q(5, { betrag: 5_00 }), q(6, { datum: '2025-12-31' })]
-    const plan = st.qifPlan(stamm, leeresJahr(2026), 'VS 0000', qs, zu)
+    const plan = st.qifPlan(stamm, leeresJahr(2026), 'VS 0000', qs, zu, 'x.qif')
     expect(plan.map(p => p.aktion)).toEqual(['neu', 'neu', 'ohneZuordnung', 'ohneZuordnung', 'richtungPasstNicht', 'falschesJahr'])
     const r = st.qifUebernehmen(leeresJahr(2026), 'x.qif', plan, { konfliktNeueNummer: [] }, c)
     expect(r.anzahl).toBe(2)
@@ -111,25 +111,29 @@ describe('QIF-Import (F07, F08)', () => {
     expect(r.jahr.buchungen.every(b => b.status === 'angeordnet' && b.qif?.status === 'abgeglichen')).toBe(true)
     expect(statusVon(r.jahr, r.jahr.buchungen[0])).toBe('angeordnet')
     // Wiederimport
-    const plan2 = st.qifPlan(stamm, r.jahr, 'VS 0000', qs, zu)
+    const plan2 = st.qifPlan(stamm, r.jahr, 'VS 0000', qs, zu, 'x.qif')
     expect(plan2.slice(0, 2).map(p => p.aktion)).toEqual(['doppelt', 'doppelt'])
   })
 
   it('gleich aussehende Sätze ohne Nummer in einer Datei sind zwei Buchungen (F15)', () => {
     const c = ctx()
     const zwei = [q(1, { nummer: '' }), q(2, { nummer: '' })]
-    const plan = st.qifPlan(stamm, leeresJahr(2026), 'K', zwei, zu)
+    const plan = st.qifPlan(stamm, leeresJahr(2026), 'K', zwei, zu, 'x')
     expect(plan.map(p => p.aktion)).toEqual(['neu', 'neu'])
     const r = st.qifUebernehmen(leeresJahr(2026), 'x', plan, { konfliktNeueNummer: [] }, c)
     expect(r.anzahl).toBe(2)
-    expect(st.qifPlan(stamm, r.jahr, 'K', zwei, zu).map(p => p.aktion)).toEqual(['doppelt', 'doppelt'])
-    expect(st.qifPlan(stamm, r.jahr, 'K', [...zwei, q(3, { nummer: '' })], zu).map(p => p.aktion)).toEqual(['doppelt', 'doppelt', 'neu'])
+    expect(st.qifPlan(stamm, r.jahr, 'K', zwei, zu, 'x').map(p => p.aktion)).toEqual(['doppelt', 'doppelt'])
+    expect(st.qifPlan(stamm, r.jahr, 'K', [...zwei, q(3, { nummer: '' })], zu, 'x').map(p => p.aktion)).toEqual(['doppelt', 'doppelt', 'neu'])
+    // Andere Datei mit gleich aussehender Buchung: nicht still verwerfen, sondern nachfragen.
+    const andere = st.qifPlan(stamm, r.jahr, 'K', [q(9, { nummer: '' })], zu, 'y')
+    expect(andere[0]).toMatchObject({ aktion: 'konflikt', hinweis: expect.stringMatching(/schon aus „x“/) })
+    expect(st.qifUebernehmen(r.jahr, 'y', andere, { konfliktNeueNummer: [9] }, c).anzahl).toBe(1)
   })
 
   it('gleiche Nummer, anderer Inhalt → Konflikt, nur mit Freigabe und neuer Nummer', () => {
     const c = ctx()
     const j = st.upsertBuchung(stamm, { ...leeresJahr(2026), naechsteNr: 7 }, eingabe(), c).jahr // 2026 007
-    const plan = st.qifPlan(stamm, j, 'VS 0000', [q(7, { nummer: '2026 007' })], zu)
+    const plan = st.qifPlan(stamm, j, 'VS 0000', [q(7, { nummer: '2026 007' })], zu, 'x')
     expect(plan[0].aktion).toBe('konflikt')
     expect(st.qifUebernehmen(j, 'x', plan, { konfliktNeueNummer: [] }, c).anzahl).toBe(0)
     const r = st.qifUebernehmen(j, 'x', plan, { konfliktNeueNummer: [7] }, c)
@@ -196,6 +200,28 @@ describe('Jahresabschluss (F01, F02, F06)', () => {
     const { j, c } = jahrVoll()
     expect(() => st.abschliessen(stamm, j, null, { uebertraege: [{ stelleId: 'a6', betrag: 1 }], vormerkungenUebernehmen: [] }, c)).toThrow(/ohne Rest/)
     expect(() => st.abschliessen(stamm, j, null, { uebertraege: [{ stelleId: 'a4', betrag: 1 }, { stelleId: 'a4', betrag: 1 }], vormerkungenUebernehmen: [] }, c)).toThrow(/nur einen/)
+  })
+
+  it('Wiederholung nach Abbruch zwischen den Dateien markiert das Original (F22)', () => {
+    const { j, c } = jahrVoll()
+    const v = j.buchungen[1]
+    const r1 = st.abschliessen(stamm, j, null, { uebertraege: [], vormerkungenUebernehmen: [v.id] }, c)
+    // Absturz: Folgejahr geschrieben, altes Jahr NICHT. Wiederholung mit dem alten Stand des Vorjahres.
+    const r2 = st.abschliessen(stamm, j, r1.folge, { uebertraege: [], vormerkungenUebernehmen: [v.id] }, c)
+    expect(r2.folge.buchungen).toHaveLength(1)
+    expect(r2.alt.buchungen.find(b => b.id === v.id)!.uebertragenNach).toEqual({ jahr: 2027, id: r1.folge.buchungen[0].id })
+    const offen = st.entsperren(r2.alt, 'x', c)
+    expect(() => st.anordnen(offen, [v.id], c)).not.toThrow()
+    expect(st.anordnen(offen, [v.id], c)).toBe(offen)
+    expect(() => st.loescheVormerkung(offen, v.id, c)).toThrow(/übertragen/)
+    expect(() => st.zurueckziehen(offen, v.id, 'g', c)).toThrow(/übertragen/)
+  })
+
+  it('Handkorrektur des Anfangsbestands beendet die Vererbung (F24)', () => {
+    const { j, c } = jahrVoll()
+    const r = st.abschliessen(stamm, j, null, { uebertraege: [], vormerkungenUebernehmen: [] }, c)
+    expect(r.folge.anfangAusAbschluss).toBe(r.alt.abschluss!.id)
+    expect(st.setAnfangsbestand(r.folge, 1_000_00, c).anfangAusAbschluss).toBeUndefined()
   })
 
   it('Kreis-Stand im Folgejahr erbt offene Posten des Vorjahres (F13)', () => {

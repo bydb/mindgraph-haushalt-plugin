@@ -116,6 +116,8 @@ export interface Jahr {
   kreis: KreisZuordnung[]
   naechsteNr: number
   abschluss?: { id: string; am: string; endstand: Cent }
+  /** Anfangsbestand stammt unverändert aus diesem Abschluss des Vorjahres (F24). Fehlt nach Handkorrektur. */
+  anfangAusAbschluss?: string
   /** Eingefrorene Gliederung eines gesperrten Jahres. */
   stellen?: Stelle[]
   protokoll: ProtokollEintrag[]
@@ -216,6 +218,7 @@ export function normalizeJahr(raw: unknown, jahr: number): Jahr {
     kreis: arr<KreisZuordnung>(r.kreis),
     naechsteNr: typeof r.naechsteNr === 'number' && r.naechsteNr >= 1 ? r.naechsteNr : 1,
     ...(r.abschluss ? { abschluss: r.abschluss } : {}),
+    ...(typeof r.anfangAusAbschluss === 'string' ? { anfangAusAbschluss: r.anfangAusAbschluss } : {}),
     ...(Array.isArray(r.stellen) ? { stellen: r.stellen } : {}),
     protokoll: arr<ProtokollEintrag>(r.protokoll),
   }
