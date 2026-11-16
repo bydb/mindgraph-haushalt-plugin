@@ -5,7 +5,7 @@
 import type { Cent } from './geld'
 import {
   type Aenderung, type AenderungsArt, type Buchung, type Jahr, type KreisZuordnung, type ProtokollEintrag, type Stammdaten, type Stelle,
-  bebuchbar, belegLaufnummer, belegNr, bestaetigt, leeresJahr, pruefeGliederung, qifSchluessel, stellenFuer, zaehltZumIst,
+  bebuchbar, belegLaufnummer, belegNr, bestaetigt, istDatum, leeresJahr, pruefeGliederung, qifSchluessel, stelleVerwendet, stellenFuer, zaehltZumIst,
 } from './model'
 import type { QifBuchung } from './qif'
 import { abschlussVorschlag } from './rechnen'
@@ -26,10 +26,6 @@ function offen(j: Jahr, was: string): void {
   if (j.gesperrt) throw new Error(`${j.jahr} ist abgeschlossen — ${was} ist nicht mehr möglich. Entsperren nur mit Begründung (Einrichtung).`)
 }
 
-function istDatum(s: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s))
-}
-
 function pruefeBetrag(betrag: unknown): Cent {
   if (typeof betrag !== 'number' || !Number.isSafeInteger(betrag) || betrag <= 0) throw new Error('Der Betrag muss größer als 0 sein.')
   return betrag
@@ -45,25 +41,41 @@ function stelleOderFehler(stellen: Stelle[], id: string): Stelle {
 
 // ─── Stammdaten ──────────────────────────────────────────────────────────────
 
+/**
+ * Gliederung speichern. `jahre` müssen ALLE Jahresdateien sein, auch gesperrte: Berichte über mehrere
+ * Jahre bauen ihre Zeilen aus der aktuellen Gliederung (F17, F20).
+ */
 export function saveStamm(stamm: Stammdaten, neu: Stammdaten, jahre: Jahr[]): Stammdaten {
+  if (!Array.isArray(neu.stellen)) throw new Error('Gliederung fehlt.')
+  if (neu.stellen.length === 0 && stamm.stellen.length > 0) throw new Error('Die Gliederung kann nicht komplett geleert werden (F18). Einzelne Stellen bitte stilllegen.')
   const fehler = pruefeGliederung(neu.stellen)
   if (fehler.length) throw new Error(fehler.join('\n'))
-  // Stellen mit Buchungen in offenen Jahren dürfen nicht verschwinden (F06: alte Jahre sind eingefroren).
   const ids = new Set(neu.stellen.map(s => s.id))
-  for (const j of jahre) {
-    if (j.stellen) continue
-    const fehlt = j.buchungen.find(b => !ids.has(b.stelleId))
-    if (fehlt) throw new Error(`Die Stelle von Buchung ${fehlt.belegnr} (${j.jahr}) fehlt in der neuen Gliederung. Stellen mit Buchungen bitte stilllegen statt löschen.`)
+  for (const alt of stamm.stellen) {
+    if (!ids.has(alt.id) && stelleVerwendet(alt.id, jahre, stamm)) {
+      throw new Error(`„${alt.name}“ hat Buchungen, Ansätze oder Vorjahreswerte. Bitte stilllegen statt löschen — sonst fehlen die Beträge in Berichten.`)
+    }
   }
-  // Finanzwirksame Merkmale nicht ändern, solange offene Jahre darauf buchen.
+  for (const j of jahre) {
+    const fehlt = j.buchungen.find(b => !ids.has(b.stelleId) && !(j.stellen ?? []).some(s => s.id === b.stelleId))
+    if (fehlt) throw new Error(`Die Stelle von Buchung ${fehlt.belegnr} (${j.jahr}) fehlt in der neuen Gliederung.`)
+  }
+  // Keine Unterstellen unter Gruppen, auf die direkt gebucht wurde (F20) — die Direktbuchung fiele aus der Gruppensumme.
+  for (const s of neu.stellen) {
+    if (!s.parentId || stamm.stellen.some(a => a.id === s.id && a.parentId === s.parentId)) continue
+    const direkt = jahre.find(j => j.buchungen.some(b => b.stelleId === s.parentId))
+    if (direkt) {
+      const g = neu.stellen.find(x => x.id === s.parentId)
+      throw new Error(`Auf „${g?.name ?? '?'}“ wurde in ${direkt.jahr} direkt gebucht. Unterstellen lassen sich dort nicht mehr ergänzen — bitte eine neue Hauptgruppe anlegen.`)
+    }
+  }
+  // Finanzwirksame Merkmale nicht ändern, sobald die Stelle irgendwo verwendet ist.
   for (const alt of stamm.stellen) {
     const n = neu.stellen.find(s => s.id === alt.id)
     if (!n) continue
     const geaendert = n.bereich !== alt.bereich || (n.parentId ?? '') !== (alt.parentId ?? '') || !!n.durchlaufend !== !!alt.durchlaufend
-    if (!geaendert) continue
-    const betroffen = jahre.find(j => !j.stellen && j.buchungen.some(b => b.stelleId === alt.id))
-    if (betroffen) {
-      throw new Error(`„${alt.name}“ hat Buchungen in ${betroffen.jahr}. Bereich, Hauptgruppe und „durchlaufend“ lassen sich dann nicht mehr ändern — sonst ändern sich die Summen rückwirkend. Neue Stelle anlegen und die alte stilllegen.`)
+    if (geaendert && stelleVerwendet(alt.id, jahre, stamm)) {
+      throw new Error(`„${alt.name}“ wird bereits verwendet. Bereich, Hauptgruppe und „durchlaufend“ lassen sich dann nicht mehr ändern — sonst ändern sich die Summen rückwirkend. Neue Stelle anlegen und die alte stilllegen.`)
     }
   }
   return { ...neu, version: stamm.version }
@@ -107,6 +119,7 @@ export function upsertBuchung(stamm: Stammdaten, j: Jahr, e: BuchungEingabe, ctx
   if (!alt) throw new Error('Buchung nicht gefunden.')
   if (alt.zurueckgezogen) throw new Error('Zurückgezogene Buchungen lassen sich nicht mehr ändern.')
   if (alt.stornoVon || alt.storniertDurch) throw new Error('Stornierte Buchungen und Gegenbuchungen lassen sich nicht ändern.')
+  if (alt.uebertragenNach) throw new Error(`Diese Vormerkung wurde nach ${alt.uebertragenNach.jahr} übertragen und wird dort weitergeführt.`)
   if (alt.status === 'angeordnet' && status === 'vorgemerkt') throw new Error('Eine angeordnete Buchung kann nicht zurück zur Vormerkung werden — bitte zurückziehen.')
   if (bestaetigt(j, alt.id) > 0 && (betrag !== alt.betrag || e.stelleId !== alt.stelleId)) {
     throw new Error('Diese Buchung ist schon vom Kreis bestätigt. Betrag und Stelle ändern geht nur über Storno und neue Buchung.')
@@ -315,19 +328,22 @@ export function qifPlan(stamm: Stammdaten, j: Jahr, konto: string, buchungen: Qi
   const stellen = stellenFuer(stamm, j)
   const vorhandeneSchluessel = new Set(j.buchungen.map(b => b.qif?.schluessel).filter(Boolean))
   const vorhandeneNummern = new Set(j.buchungen.map(b => b.belegnr))
-  const imPlan = new Set<string>()
+  // Gleich aussehende Sätze innerhalb einer Datei sind verschiedene Buchungen (F15): mitzählen.
+  const vorkommen = new Map<string, number>()
   return buchungen.map(q => {
-    const schluessel = qifSchluessel(konto, q.datum, q.betrag, q.nummer, q.empfaenger)
+    const basis = qifSchluessel(konto, q.datum, q.betrag, q.nummer, q.empfaenger)
+    const n = (vorkommen.get(basis) ?? 0) + 1
+    vorkommen.set(basis, n)
+    const schluessel = `${basis}#${n}`
     const stelleId = zuordnung[q.kategorie] ?? null
     const s = stelleId ? stellen.find(x => x.id === stelleId) : undefined
     const z = (aktion: QifPlanZeile['aktion'], hinweis?: string): QifPlanZeile => ({ q, stelleId: s ? s.id : null, aktion, hinweis, schluessel })
     if (Number(q.datum.slice(0, 4)) !== j.jahr) return z('falschesJahr', `Datum ${q.datum} liegt nicht in ${j.jahr}`)
-    if (vorhandeneSchluessel.has(schluessel) || imPlan.has(schluessel)) return z('doppelt', 'bereits übernommen')
+    if (vorhandeneSchluessel.has(schluessel)) return z('doppelt', 'bereits übernommen')
     if (!s || !bebuchbar(stellen, s)) return z('ohneZuordnung', `Kategorie „${q.kategorie || '(leer)'}“ ist keiner bebuchbaren Stelle zugeordnet`)
     const richtig = (s.bereich === 'einnahme') === (q.betrag > 0)
     if (!richtig || q.betrag === 0) return z('richtungPasstNicht', `${q.betrag > 0 ? 'Einnahme' : 'Ausgabe'} auf ${s.bereich === 'einnahme' ? 'Einnahme' : 'Ausgaben'}stelle „${s.name}“`)
     if (q.nummer && vorhandeneNummern.has(q.nummer)) return z('konflikt', `Belegnummer ${q.nummer} ist schon vergeben (andere Buchung)`)
-    imPlan.add(schluessel)
     if (q.nummer) vorhandeneNummern.add(q.nummer)
     return z('neu')
   })
@@ -390,6 +406,17 @@ export interface AbschlussErgebnis {
 export function abschliessen(stamm: Stammdaten, alt: Jahr, folgeVorher: Jahr | null, e: AbschlussEingabe, ctx: Ctx): AbschlussErgebnis {
   const v = abschlussVorschlag(stamm, alt)
   if (v.hindernisse.length) throw new Error(v.hindernisse.join('\n'))
+  // Eingaben gegen den Vorschlag prüfen (F16): nur vorgeschlagene Stellen, jede einmal, Betrag ≥ 0.
+  const erlaubt = new Set(v.uebertraege.map(u => u.stelleId))
+  const gesehen = new Set<string>()
+  for (const u of e.uebertraege) {
+    if (!erlaubt.has(u.stelleId)) throw new Error('Übertrag für eine Stelle ohne Rest — nicht zulässig.')
+    if (gesehen.has(u.stelleId)) throw new Error('Jede Stelle darf nur einen Übertrag haben.')
+    gesehen.add(u.stelleId)
+    if (!Number.isSafeInteger(u.betrag) || u.betrag < 0 || u.betrag > 1e11) throw new Error('Ungültiger Übertragsbetrag.')
+  }
+  const offeneIds = new Set(v.offeneVormerkungen.map(b => b.id))
+  if (e.vormerkungenUebernehmen.some(id => !offeneIds.has(id))) throw new Error('Nur offene Vormerkungen lassen sich übernehmen.')
   const abschlussId = ctx.neueId()
   const fj = alt.jahr + 1
   let folge = folgeVorher ?? leeresJahr(fj)
@@ -397,11 +424,8 @@ export function abschliessen(stamm: Stammdaten, alt: Jahr, folgeVorher: Jahr | n
 
   // Frühere Abschlusseinträge entfernen (Idempotenz).
   const frueher = new Set(folge.aenderungen.filter(a => a.ausAbschluss).map(a => a.ausAbschluss!))
-  folge = {
-    ...folge,
-    aenderungen: folge.aenderungen.filter(a => !a.ausAbschluss),
-    buchungen: folge.buchungen.filter(b => !(b.uebernommenAus && b.uebernommenAus.jahr === alt.jahr && b.status === 'vorgemerkt' && !b.beleg)),
-  }
+  // Früher übernommene Vormerkungen bleiben (das Original ist im Vorjahr als übertragen markiert, F22).
+  folge = { ...folge, aenderungen: folge.aenderungen.filter(a => !a.ausAbschluss) }
 
   const datum = `${fj}-01-01`
   const uebertraege: Aenderung[] = e.uebertraege
@@ -414,8 +438,11 @@ export function abschliessen(stamm: Stammdaten, alt: Jahr, folgeVorher: Jahr | n
   const wandern: Buchung[] = []
   for (const b of v.offeneVormerkungen) {
     if (!uebernehmen.has(b.id) || schonDa.has(b.id)) continue
-    wandern.push({ ...b, id: ctx.neueId(), belegnr: belegNr(fj, nr++), datum: b.datum < datum ? datum : b.datum, uebernommenAus: { jahr: alt.jahr, id: b.id } })
+    const { uebertragenNach: _u, ...rest } = b
+    void _u
+    wandern.push({ ...rest, id: ctx.neueId(), belegnr: belegNr(fj, nr++), datum: b.datum < datum ? datum : b.datum, uebernommenAus: { jahr: alt.jahr, id: b.id } })
   }
+  const ziel = new Map(wandern.map(w => [w.uebernommenAus!.id, w]))
 
   folge = log(
     { ...folge, anfangsbestand: v.endstand, aenderungen: [...folge.aenderungen, ...uebertraege], buchungen: [...folge.buchungen, ...wandern], naechsteNr: nr },
@@ -424,11 +451,12 @@ export function abschliessen(stamm: Stammdaten, alt: Jahr, folgeVorher: Jahr | n
   )
 
   // Altes Jahr: nicht übernommene Vormerkungen zurückziehen, Gliederung einfrieren, sperren.
-  const buchungen = alt.buchungen.map(b =>
-    b.status === 'vorgemerkt' && !b.zurueckgezogen && !uebernehmen.has(b.id)
-      ? { ...b, zurueckgezogen: { am: heute(ctx), grund: 'Jahresabschluss: nicht übernommen' } }
-      : b,
-  )
+  const buchungen = alt.buchungen.map(b => {
+    if (b.status !== 'vorgemerkt' || b.zurueckgezogen || b.uebertragenNach) return b
+    const w = ziel.get(b.id)
+    if (w) return { ...b, uebertragenNach: { jahr: fj, id: w.id } }
+    return uebernehmen.has(b.id) ? b : { ...b, zurueckgezogen: { am: heute(ctx), grund: 'Jahresabschluss: nicht übernommen' } }
+  })
   const gesperrt = log(
     { ...alt, buchungen, gesperrt: true, stellen: stellenFuer(stamm, alt), abschluss: { id: abschlussId, am: ctx.jetzt, endstand: v.endstand } },
     ctx,

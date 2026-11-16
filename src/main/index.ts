@@ -109,16 +109,34 @@ export default definePluginMain({ id: PLUGIN_ID }, ({ host, actions }) => {
     return out
   }
 
+  /**
+   * Noch nicht vom Kreis bestätigter Saldo, den ein Jahr aus seinen Vorjahren erbt (F13). Gilt nur, solange
+   * der Anfangsbestand aus einem Abschluss stammt; wird bei jedem Laden neu gerechnet, damit spätes Abhaken
+   * im alten Jahr sofort im neuen ankommt.
+   */
+  const vorjahrOffen = async (folder: string, stamm: Stammdaten, jahr: number, tiefe = 0): Promise<number> => {
+    if (tiefe > 50) return 0
+    const vj = await loadJahr(folder, jahr - 1)
+    if (!vj?.abschluss) return 0
+    const erbe = await vorjahrOffen(folder, stamm, jahr - 1, tiefe + 1)
+    return uebersicht(stamm, vj, erbe).guthaben.offen
+  }
+
   /** Antwort für die Oberfläche: Stammdaten + gewähltes Jahr + abgeleitete Sicht. */
   const ansicht = async (folder: string, jahr: number, stammIn?: Stammdaten, jahrIn?: Jahr | null) => {
     const stamm = stammIn ?? (await loadStamm(folder))
     const j = jahrIn !== undefined ? jahrIn : await loadJahr(folder, jahr)
+    // Jahresdatei vorhanden, aber nicht in der Liste (abgebrochenes Anlegen, F14): Liste reparieren.
+    if (j && !stamm.jahre.includes(j.jahr)) {
+      stamm.jahre = [...stamm.jahre, j.jahr].sort((a, b) => a - b)
+      await saveStamm(folder, stamm)
+    }
     let warnung: string | null = null
     if (j) {
       const folge = await loadJahr(folder, jahr + 1)
       if (st.abschlussUnvollstaendig(j, folge)) warnung = `Der Abschluss ${jahr} ist nicht vollständig: ${jahr + 1} hat bereits Überträge, ${jahr} ist aber nicht gesperrt. Bitte den Abschluss erneut ausführen.`
     }
-    return { stamm, jahr: j, uebersicht: j ? uebersicht(stamm, j) : null, warnung }
+    return { stamm, jahr: j, uebersicht: j ? uebersicht(stamm, j, await vorjahrOffen(folder, stamm, j.jahr)) : null, warnung }
   }
 
   type P = Record<string, unknown> & { folder: string; jahr: number }
@@ -154,7 +172,9 @@ export default definePluginMain({ id: PLUGIN_ID }, ({ host, actions }) => {
     serial(async () => {
       const p = parse(payload)
       const alt = await loadStamm(p.folder)
-      const neuRaw = normalizeStamm((payload as { stamm: unknown }).stamm)
+      const roh = (payload as { stamm?: unknown }).stamm
+      if (!roh || typeof roh !== 'object' || !Array.isArray((roh as { stellen?: unknown }).stellen)) throw new Error('Gliederung fehlt im Aufruf.')
+      const neuRaw = normalizeStamm(roh)
       // Jahresliste, Vorjahreswerte und QIF-Zuordnung verwaltet Main, nicht das Formular.
       const neu = st.saveStamm(alt, { ...neuRaw, jahre: alt.jahre, vorjahre: alt.vorjahre, vorjahrKontostand: alt.vorjahrKontostand, qifZuordnung: { ...alt.qifZuordnung, ...neuRaw.qifZuordnung } }, await loadAlleJahre(p.folder, alt))
       await saveStamm(p.folder, neu)
@@ -166,7 +186,7 @@ export default definePluginMain({ id: PLUGIN_ID }, ({ host, actions }) => {
     serial(async () => {
       const p = parse(payload)
       const stamm = await loadStamm(p.folder)
-      if (await loadJahr(p.folder, p.jahr)) throw new Error(`${p.jahr} ist schon angelegt.`)
+      if (await loadJahr(p.folder, p.jahr)) return ansicht(p.folder, p.jahr, stamm) // repariert ggf. die Jahresliste
       const anfang = Number((payload as { anfangsbestand?: unknown }).anfangsbestand ?? 0)
       const j: Jahr = { ...leeresJahr(p.jahr), anfangsbestand: Number.isSafeInteger(anfang) ? anfang : 0 }
       const neu = { ...j, protokoll: [{ zeit: new Date().toISOString(), aktion: 'jahr.anlegen', nachher: { anfangsbestand: j.anfangsbestand } }] }
@@ -316,13 +336,20 @@ export default definePluginMain({ id: PLUGIN_ID }, ({ host, actions }) => {
       const stamm = await loadStamm(p.folder)
       const jahre = await loadAlleJahre(p.folder, stamm)
       if (jahre.some(j => j.buchungen.length)) throw new Error('Es gibt schon Buchungen. Die Gliederung lässt sich dann nicht mehr per Import ersetzen — bitte unter Einrichtung bearbeiten.')
+      // Nur in leere Jahre importieren (F19) — vor dem ersten Schreiben alle Zieljahre prüfen.
+      for (const y of Object.keys(imp.werte).map(Number).filter(y => y >= erstesJahr)) {
+        const j = await loadJahr(p.folder, y)
+        if (j && (Object.keys(j.ansatz).length || j.aenderungen.length || j.gesperrt)) {
+          throw new Error(`${y} hat schon Ansätze oder Änderungen. Der Import überschreibt keine vorhandenen Werte — bitte dort von Hand anpassen oder ein späteres erstes Jahr wählen.`)
+        }
+      }
       const stellen = imp.stellen.map(s => (durchlaufend.has(s.id) ? { ...s, durchlaufend: true } : s))
       const vorjahre: Stammdaten['vorjahre'] = {}
       const kontostand: Stammdaten['vorjahrKontostand'] = {}
       for (const [y, w] of Object.entries(imp.werte)) if (Number(y) < erstesJahr) vorjahre[y] = w
       for (const [y, k] of Object.entries(imp.kontostand)) if (Number(y) < erstesJahr) kontostand[y] = k
       const neu: Stammdaten = { ...stamm, einrichtung: String(p.einrichtung ?? stamm.einrichtung), kontoBezeichnung: String(p.kontoBezeichnung ?? stamm.kontoBezeichnung), stellen, vorjahre, vorjahrKontostand: kontostand }
-      st.saveStamm(stamm, neu, []) // prüft die Gliederung
+      st.saveStamm(leereStammdaten(), neu, []) // prüft die Gliederung (Jahre sind leer, siehe oben)
       await saveStamm(p.folder, neu)
       // Ansätze ab dem ersten Plugin-Jahr in die Jahresdateien.
       for (const [y, w] of Object.entries(imp.werte)) {

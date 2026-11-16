@@ -38,8 +38,10 @@ export interface Uebersicht {
     unsere: Cent
     /** Nur was der Kreis bestätigt hat. */
     kreis: Cent
-    /** Noch nicht vom Kreis bestätigt: Einnahmen − Ausgaben. */
+    /** Noch nicht vom Kreis bestätigt: Einnahmen − Ausgaben (inkl. offener Posten der Vorjahre). */
     offen: Cent
+    /** Davon aus Vorjahren übernommen (F13). */
+    vorjahrOffen: Cent
   }
   /** Buchungen auf Stellen, die es in der Gliederung nicht (mehr) gibt — dürfen nicht still verschwinden. */
   unbekannteStellen: string[]
@@ -72,7 +74,7 @@ function direkt(jahr: Jahr, stelleId: string): Werte {
   w.ansatz = jahr.ansatz[stelleId] ?? 0
   for (const a of jahr.aenderungen) if (a.stelleId === stelleId) w.aenderungen += a.betrag
   for (const b of jahr.buchungen) {
-    if (b.stelleId !== stelleId || b.zurueckgezogen) continue
+    if (b.stelleId !== stelleId || b.zurueckgezogen || b.uebertragenNach) continue
     if (b.status === 'vorgemerkt') w.vorgemerkt += wirkung(b)
     else {
       w.ist += wirkung(b)
@@ -84,7 +86,11 @@ function direkt(jahr: Jahr, stelleId: string): Werte {
   return w
 }
 
-export function uebersicht(stamm: Stammdaten, jahr: Jahr): Uebersicht {
+/**
+ * @param vorjahrOffen  Noch nicht vom Kreis bestätigter Saldo der Vorjahre, wenn der Anfangsbestand aus einem
+ *                      Abschluss stammt (F13). Der Kreis-Stand beginnt dann um diesen Betrag anders als unserer.
+ */
+export function uebersicht(stamm: Stammdaten, jahr: Jahr, vorjahrOffen: Cent = 0): Uebersicht {
   const stellen = stellenFuer(stamm, jahr)
   const zeilen: Zeile[] = []
   const summen: Uebersicht['summen'] = {
@@ -122,14 +128,14 @@ export function uebersicht(stamm: Stammdaten, jahr: Jahr): Uebersicht {
   // Guthaben über ALLE Buchungen (auch durchlaufende), nach Bereich der Stelle.
   const bereichVon = new Map(stellen.map(s => [s.id, s.bereich]))
   let unsere = jahr.anfangsbestand
-  let kreis = jahr.anfangsbestand
+  let kreis = jahr.anfangsbestand - vorjahrOffen
   for (const b of jahr.buchungen) {
     if (!zaehltZumIst(b)) continue
     const vz = bereichVon.get(b.stelleId) === 'einnahme' ? 1 : -1
     unsere += vz * wirkung(b)
     kreis += vz * bestaetigtWirkung(jahr, b)
   }
-  return { zeilen, summen, guthaben: { anfang: jahr.anfangsbestand, unsere, kreis, offen: unsere - kreis }, unbekannteStellen }
+  return { zeilen, summen, guthaben: { anfang: jahr.anfangsbestand, unsere, kreis, offen: unsere - kreis, vorjahrOffen }, unbekannteStellen }
 }
 
 // ─── Jahresabschluss ─────────────────────────────────────────────────────────
@@ -155,7 +161,7 @@ export function abschlussVorschlag(stamm: Stammdaten, jahr: Jahr): AbschlussVors
       .filter(z => z.ebene === 0 && z.stelle.bereich === 'ausgabe' && !z.stelle.durchlaufend && z.wirksam > 0 && z.frei + z.vorgemerkt > 0)
       // Vormerkungen sind noch nicht ausgegeben: der Rest ohne sie ist das, was übertragen werden kann.
       .map(z => ({ stelleId: z.stelle.id, rest: z.frei + z.vorgemerkt })),
-    offeneVormerkungen: jahr.buchungen.filter(b => b.status === 'vorgemerkt' && !b.zurueckgezogen),
+    offeneVormerkungen: jahr.buchungen.filter(b => b.status === 'vorgemerkt' && !b.zurueckgezogen && !b.uebertragenNach),
     offeneAnordnungen: jahr.buchungen.filter(b => zaehltZumIst(b) && bestaetigt(jahr, b.id) < b.betrag),
     hindernisse,
   }

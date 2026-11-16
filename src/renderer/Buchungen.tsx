@@ -10,6 +10,7 @@ type Filter = 'alle' | Status | 'zurueckgezogen'
 
 function StatusChip({ b, s }: { b: Buchung; s: Status }): React.ReactElement {
   if (b.zurueckgezogen) return <span className="hh-status s-weg">zurückgezogen</span>
+  if (b.uebertragenNach) return <span className="hh-status s-weg">nach {b.uebertragenNach.jahr} übertragen</span>
   return <span className={`hh-status s-${s}`}>{STATUS_LABEL[s]}</span>
 }
 
@@ -279,7 +280,7 @@ export function AbgleichPane(p: PaneProps): React.ReactElement {
                   <td>{datumDe(b.datum)}</td>
                   <td>{s ? `${s.nummer} ${s.kurz}` : '?'}</td>
                   <td>{b.empfaenger}<div className="hh-muted hh-small">{b.zweck}</div></td>
-                  <td className="num">{s?.bereich === 'einnahme' ? '' : '−'}{formatCent(b.stornoVon ? -rest : rest)}{rest !== b.betrag && <div className="hh-muted hh-small">von {formatCent(b.betrag)}</div>}</td>
+                  <td className="num">{formatCent((s?.bereich === 'einnahme' ? 1 : -1) * (b.stornoVon ? -rest : rest))}{rest !== b.betrag && <div className="hh-muted hh-small">von {formatCent(b.betrag)}</div>}</td>
                 </tr>
               )
             })}

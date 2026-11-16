@@ -65,6 +65,8 @@ export interface Buchung {
   storniertDurch?: string
   zurueckgezogen?: { am: string; grund: string }
   uebernommenAus?: { jahr: number; id: string }
+  /** Vormerkung beim Abschluss ins Folgejahr übertragen (F22): zählt hier nicht mehr. */
+  uebertragenNach?: { jahr: number; id: string }
   quelle: 'hand' | 'qif'
   qif?: { datei: string; satz: number; status: string; schluessel: string }
 }
@@ -131,6 +133,21 @@ export const STATUS_LABEL: Record<Status, string> = {
   vorgemerkt: 'vorgemerkt',
   angeordnet: 'angeordnet',
   gebucht: 'vom Kreis gebucht',
+}
+
+/** Gültiges ISO-Datum JJJJ-MM-TT mit existierendem Kalendertag (F21: kein 30. Februar). */
+export function istDatum(s: unknown): s is string {
+  if (typeof s !== 'string') return false
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
+  if (!m) return false
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])))
+  return d.getUTCFullYear() === Number(m[1]) && d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3])
+}
+
+/** Ist die Stelle in irgendeinem Jahr oder in den Vorjahreswerten verwendet? */
+export function stelleVerwendet(id: string, jahre: Jahr[], stamm: Stammdaten): boolean {
+  return jahre.some(j => j.buchungen.some(b => b.stelleId === id) || j.ansatz[id] !== undefined || j.aenderungen.some(a => a.stelleId === id))
+    || Object.values(stamm.vorjahre).some(w => w[id] !== undefined)
 }
 
 // ─── Belegnummern ────────────────────────────────────────────────────────────

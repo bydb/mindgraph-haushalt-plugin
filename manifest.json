@@ -66,7 +66,8 @@
       "inputSchema": {
         "type": "object",
         "required": [
-          "folder"
+          "folder",
+          "stamm"
         ],
         "properties": {
           "folder": {
@@ -128,6 +129,7 @@
       "inputSchema": {
         "type": "object",
         "required": [
+          "eingabe",
           "folder"
         ],
         "properties": {
@@ -159,7 +161,8 @@
       "inputSchema": {
         "type": "object",
         "required": [
-          "folder"
+          "folder",
+          "id"
         ],
         "properties": {
           "folder": {
@@ -192,7 +195,8 @@
       "inputSchema": {
         "type": "object",
         "required": [
-          "folder"
+          "folder",
+          "id"
         ],
         "properties": {
           "folder": {
@@ -229,7 +233,8 @@
       "inputSchema": {
         "type": "object",
         "required": [
-          "folder"
+          "folder",
+          "id"
         ],
         "properties": {
           "folder": {
@@ -307,6 +312,7 @@
       "inputSchema": {
         "type": "object",
         "required": [
+          "abhaken",
           "folder"
         ],
         "properties": {
@@ -338,7 +344,8 @@
       "inputSchema": {
         "type": "object",
         "required": [
-          "folder"
+          "folder",
+          "id"
         ],
         "properties": {
           "folder": {
@@ -372,7 +379,8 @@
       "inputSchema": {
         "type": "object",
         "required": [
-          "folder"
+          "folder",
+          "id"
         ],
         "properties": {
           "folder": {
@@ -405,7 +413,9 @@
       "inputSchema": {
         "type": "object",
         "required": [
-          "folder"
+          "betrag",
+          "folder",
+          "stelleId"
         ],
         "properties": {
           "folder": {
@@ -441,6 +451,7 @@
       "inputSchema": {
         "type": "object",
         "required": [
+          "eingabe",
           "folder"
         ],
         "properties": {
@@ -472,7 +483,8 @@
       "inputSchema": {
         "type": "object",
         "required": [
-          "folder"
+          "folder",
+          "id"
         ],
         "properties": {
           "folder": {
@@ -505,6 +517,7 @@
       "inputSchema": {
         "type": "object",
         "required": [
+          "betrag",
           "folder"
         ],
         "properties": {
@@ -563,7 +576,8 @@
       "inputSchema": {
         "type": "object",
         "required": [
-          "folder"
+          "folder",
+          "token"
         ],
         "properties": {
           "folder": {
@@ -599,7 +613,8 @@
       "inputSchema": {
         "type": "object",
         "required": [
-          "folder"
+          "folder",
+          "token"
         ],
         "properties": {
           "folder": {
@@ -670,7 +685,9 @@
       "inputSchema": {
         "type": "object",
         "required": [
-          "folder"
+          "erstesJahr",
+          "folder",
+          "token"
         ],
         "properties": {
           "folder": {
@@ -755,6 +772,7 @@
       "inputSchema": {
         "type": "object",
         "required": [
+          "eingabe",
           "folder"
         ],
         "properties": {
@@ -769,7 +787,45 @@
             "maximum": 2100
           },
           "eingabe": {
-            "type": "object"
+            "type": "object",
+            "required": [
+              "uebertraege",
+              "vormerkungenUebernehmen"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "uebertraege": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "stelleId",
+                    "betrag"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "stelleId": {
+                      "type": "string",
+                      "maxLength": 80
+                    },
+                    "betrag": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100000000000
+                    }
+                  }
+                }
+              },
+              "vormerkungenUebernehmen": {
+                "type": "array",
+                "maxItems": 5000,
+                "items": {
+                  "type": "string",
+                  "maxLength": 80
+                }
+              }
+            }
           }
         },
         "additionalProperties": false

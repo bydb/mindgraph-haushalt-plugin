@@ -115,6 +115,17 @@ describe('QIF-Import (F07, F08)', () => {
     expect(plan2.slice(0, 2).map(p => p.aktion)).toEqual(['doppelt', 'doppelt'])
   })
 
+  it('gleich aussehende Sätze ohne Nummer in einer Datei sind zwei Buchungen (F15)', () => {
+    const c = ctx()
+    const zwei = [q(1, { nummer: '' }), q(2, { nummer: '' })]
+    const plan = st.qifPlan(stamm, leeresJahr(2026), 'K', zwei, zu)
+    expect(plan.map(p => p.aktion)).toEqual(['neu', 'neu'])
+    const r = st.qifUebernehmen(leeresJahr(2026), 'x', plan, { konfliktNeueNummer: [] }, c)
+    expect(r.anzahl).toBe(2)
+    expect(st.qifPlan(stamm, r.jahr, 'K', zwei, zu).map(p => p.aktion)).toEqual(['doppelt', 'doppelt'])
+    expect(st.qifPlan(stamm, r.jahr, 'K', [...zwei, q(3, { nummer: '' })], zu).map(p => p.aktion)).toEqual(['doppelt', 'doppelt', 'neu'])
+  })
+
   it('gleiche Nummer, anderer Inhalt → Konflikt, nur mit Freigabe und neuer Nummer', () => {
     const c = ctx()
     const j = st.upsertBuchung(stamm, { ...leeresJahr(2026), naechsteNr: 7 }, eingabe(), c).jahr // 2026 007
@@ -164,13 +175,64 @@ describe('Jahresabschluss (F01, F02, F06)', () => {
     const r1 = st.abschliessen(stamm, j, null, { uebertraege: [{ stelleId: 'a4', betrag: 700_00 }], vormerkungenUebernehmen: [v.id] }, c)
     expect(st.abschlussUnvollstaendig(j, r1.folge)).toBe(true) // Absturz vor der Sperre
     const wieder = st.entsperren(r1.alt, 'Korrektur', c)
-    const r2 = st.abschliessen(stamm, wieder, r1.folge, { uebertraege: [{ stelleId: 'a4', betrag: 650_00 }], vormerkungenUebernehmen: [v.id] }, c)
+    // Die Vormerkung ist schon übertragen (F22) und kein zweites Mal wählbar.
+    expect(() => st.abschliessen(stamm, wieder, r1.folge, { uebertraege: [], vormerkungenUebernehmen: [v.id] }, c)).toThrow(/offene Vormerkungen/)
+    const r2 = st.abschliessen(stamm, wieder, r1.folge, { uebertraege: [{ stelleId: 'a4', betrag: 650_00 }], vormerkungenUebernehmen: [] }, c)
     expect(r2.folge.aenderungen.map(a => a.betrag)).toEqual([650_00])
     expect(r2.folge.buchungen).toHaveLength(1)
   })
+
+  it('übertragene Vormerkung zählt im alten Jahr nicht mehr (F22)', () => {
+    const { j, c } = jahrVoll()
+    const v = j.buchungen[1]
+    const r = st.abschliessen(stamm, j, null, { uebertraege: [], vormerkungenUebernehmen: [v.id] }, c)
+    const alt = r.alt.buchungen.find(b => b.id === v.id)!
+    expect(alt.uebertragenNach).toEqual({ jahr: 2027, id: r.folge.buchungen[0].id })
+    expect(uebersicht(stamm, r.alt).zeilen.find(z => z.stelle.id === 'a4')!.vorgemerkt).toBe(0)
+    expect(() => st.upsertBuchung(stamm, st.entsperren(r.alt, 'x', c), { ...eingabe(), id: v.id }, c)).toThrow(/übertragen/)
+  })
+
+  it('Überträge nur für vorgeschlagene Stellen, je einmal (F16)', () => {
+    const { j, c } = jahrVoll()
+    expect(() => st.abschliessen(stamm, j, null, { uebertraege: [{ stelleId: 'a6', betrag: 1 }], vormerkungenUebernehmen: [] }, c)).toThrow(/ohne Rest/)
+    expect(() => st.abschliessen(stamm, j, null, { uebertraege: [{ stelleId: 'a4', betrag: 1 }, { stelleId: 'a4', betrag: 1 }], vormerkungenUebernehmen: [] }, c)).toThrow(/nur einen/)
+  })
+
+  it('Kreis-Stand im Folgejahr erbt offene Posten des Vorjahres (F13)', () => {
+    const { j, c } = jahrVoll() // Anfang 1.000, Ausgabe 300 angeordnet, nicht bestätigt
+    const r = st.abschliessen(stamm, j, null, { uebertraege: [], vormerkungenUebernehmen: [] }, c)
+    const offenAlt = uebersicht(stamm, r.alt).guthaben.offen
+    expect(offenAlt).toBe(-300_00)
+    expect(uebersicht(stamm, r.folge, offenAlt).guthaben).toMatchObject({ unsere: 700_00, kreis: 1_000_00, offen: -300_00 })
+    const gehakt = st.abhaken(r.alt, { buchungIds: [r.alt.buchungen[0].id], datum: '2027-01-15' }, c)
+    expect(uebersicht(stamm, r.folge, uebersicht(stamm, gehakt).guthaben.offen).guthaben).toMatchObject({ kreis: 700_00, offen: 0 })
+  })
 })
 
-describe('Gliederung schützen (F06)', () => {
+describe('Strenge Eingaben', () => {
+  it('kein 30. Februar (F21)', () => {
+    expect(() => st.upsertBuchung(stamm, leeresJahr(2026), eingabe({ datum: '2026-02-30' }), ctx())).toThrow(/gültiges Datum/)
+    const r = st.upsertBuchung(stamm, leeresJahr(2026), eingabe(), ctx())
+    expect(() => st.abhaken(r.jahr, { buchungIds: [r.id], datum: '2026-02-30' }, ctx())).toThrow(/Buchungsdatum/)
+  })
+})
+
+describe('Gliederung schützen (F06, F17, F18, F20)', () => {
+  it('leere Gliederung nur ohne vorherige Stellen; verwendete Stellen nicht löschen, auch nach Abschluss', () => {
+    const c = ctx()
+    expect(() => st.saveStamm(stamm, { ...stamm, stellen: [] }, [])).toThrow(/geleert/)
+    let j = st.setAnsatz(leeresJahr(2026), 'a6', 100_00, c)
+    j = { ...j, gesperrt: true, stellen }
+    expect(() => st.saveStamm(stamm, { ...stamm, stellen: stellen.filter(s => s.id !== 'a6') }, [j])).toThrow(/stilllegen/)
+    expect(st.saveStamm(stamm, { ...stamm, stellen: stellen.map(s => (s.id === 'a6' ? { ...s, inaktiv: true } : s)) }, [j]).stellen).toHaveLength(4)
+  })
+  it('keine neue Unterstelle unter direkt bebuchter Gruppe (F20)', () => {
+    const j = st.upsertBuchung(stamm, leeresJahr(2026), eingabe({ stelleId: 'a6' }), ctx()).jahr
+    const neu = { ...stamm, stellen: [...stellen, { id: 'a6x', nummer: '5230', kurz: '6a', name: 'Neu', bereich: 'ausgabe' as const, parentId: 'a6' }] }
+    expect(() => st.saveStamm(stamm, neu, [j])).toThrow(/direkt gebucht/)
+    expect(st.saveStamm(stamm, neu, []).stellen).toHaveLength(5)
+  })
+
   it('finanzwirksame Merkmale gebuchter Stellen bleiben fest', () => {
     const c = ctx()
     const j = st.upsertBuchung(stamm, leeresJahr(2026), eingabe(), c).jahr
