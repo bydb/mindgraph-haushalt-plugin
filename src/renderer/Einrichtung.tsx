@@ -1,7 +1,7 @@
 // Einrichtung: Ablageordner, Einrichtung/Konto, Gliederung, Erstimport (Excel), Quicken-Import, Protokoll.
 
 import React, { useEffect, useMemo, useState } from 'react'
-import { formatEuro } from '../geld'
+import { formatCent, formatEuro, parseEuroDe } from '../geld'
 import { type Stelle, bebuchbar, stelleLabel, stellenFuer } from '../model'
 import type { QifPlanZeile } from '../store'
 import type { VorlageImport } from '../vorlage'
@@ -113,6 +113,7 @@ function VorlageImportCard(p: Props): React.ReactElement {
   const [imp, setImp] = useState<(VorlageImport & { token: string }) | null>(null)
   const [durch, setDurch] = useState<Set<string>>(new Set())
   const [erstesJahr, setErstesJahr] = useState(p.jahrNr)
+  const [anfang, setAnfang] = useState('')
   const hatBuchungen = (ansicht.jahr?.buchungen.length ?? 0) > 0
   const lesen = () => void run(async () => {
     const r = await api.vorlageLesen()
@@ -122,7 +123,10 @@ function VorlageImportCard(p: Props): React.ReactElement {
       setDurch(new Set(r.stellen.filter(s => /durchlauf|microsoft|ms ?365|lizenz/i.test(s.name)).map(s => s.id)))
       const jahre = r.spalten.map(s => s.jahr)
       const ohneIst = r.spalten.filter(s => s.art === 'ansatz' && !r.spalten.some(t => t.art === 'ist' && t.jahr === s.jahr)).map(s => s.jahr)
-      setErstesJahr(Math.min(...(ohneIst.length ? ohneIst : [Math.max(...jahre)])))
+      const ej = Math.min(...(ohneIst.length ? ohneIst : [Math.max(...jahre)]))
+      setErstesJahr(ej)
+      const ende = r.kontostand[ej - 1]?.ende
+      setAnfang(ende !== undefined ? formatCent(ende) : '')
     }
     return null
   })
@@ -145,6 +149,8 @@ function VorlageImportCard(p: Props): React.ReactElement {
       {imp.hinweise.length > 0 && <details><summary className="hh-small">{imp.hinweise.length} Hinweise zur alten Tabelle</summary><ul className="hh-list hh-small">{imp.hinweise.map(h => <li key={h}>{h}</li>)}</ul></details>}
       <label className="hh-field" style={{ marginTop: 10 }}><span>Erstes Jahr im Plugin <em>(davor: feste Vorjahreswerte; ab hier: Ansätze in die Jahresdatei, Ist aus Buchungen)</em></span>
         <select value={erstesJahr} onChange={e => setErstesJahr(Number(e.target.value))}>{jahre.map(j => <option key={j}>{j}</option>)}</select></label>
+      <label className="hh-field"><span>Guthaben beim Kreis am 1. Januar {erstesJahr} <em>(aus der Liste des Kreises — der Endstand der alten Tabelle {imp.kontostand[erstesJahr - 1]?.ende !== undefined ? `war ${formatEuro(imp.kontostand[erstesJahr - 1].ende!)}` : 'fehlt'} und stammt oft aus einer Formel)</em></span>
+        <input value={anfang} onChange={e => setAnfang(e.target.value)} inputMode="decimal" placeholder="0,00" /></label>
       <p className="hh-small"><b>Durchlaufende Posten</b> markieren (zählen nicht zur Gruppe):</p>
       <div style={{ maxHeight: 220, overflowY: 'auto' }}>
         {imp.stellen.map(s => (
@@ -155,8 +161,8 @@ function VorlageImportCard(p: Props): React.ReactElement {
         ))}
       </div>
       <div className="hh-actions">
-        <button className="hh-btn primary" disabled={busy} onClick={() => void run(async () => {
-          const r = await api.vorlageUebernehmen({ token: imp.token, erstesJahr, durchlaufend: [...durch], einrichtung: ansicht.stamm.einrichtung, kontoBezeichnung: ansicht.stamm.kontoBezeichnung })
+        <button className="hh-btn primary" disabled={busy || parseEuroDe(anfang || '0') === null} onClick={() => void run(async () => {
+          const r = await api.vorlageUebernehmen({ token: imp.token, erstesJahr, durchlaufend: [...durch], einrichtung: ansicht.stamm.einrichtung, kontoBezeichnung: ansicht.stamm.kontoBezeichnung, anfangsbestand: parseEuroDe(anfang || '0') ?? 0 })
           setImp(null)
           return r
         })}>Übernehmen</button>

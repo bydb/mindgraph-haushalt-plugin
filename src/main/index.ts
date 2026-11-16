@@ -333,7 +333,10 @@ export default definePluginMain({ id: PLUGIN_ID }, ({ host, actions }) => {
         if (!Object.keys(ansatz).length) continue
         const j = (await loadJahr(p.folder, jahr)) ?? leeresJahr(jahr)
         if (j.gesperrt) continue
-        const anfang = jahr === erstesJahr ? (kontostand[jahr - 1]?.ende ?? j.anfangsbestand) : j.anfangsbestand
+        // Anfangsbestand nur, wenn der Nutzer ihn im Import bestätigt hat — der Endstand der alten Tabelle
+        // kam real aus einer fehlerhaften Formel (Ende 2025 −11.892,02 statt 1.229,33 laut Kreisliste).
+        const bestaetigt = Number(p.anfangsbestand)
+        const anfang = jahr === erstesJahr && p.anfangsbestand !== undefined && Number.isSafeInteger(bestaetigt) ? bestaetigt : j.anfangsbestand
         await saveJahr(p.folder, { ...j, ansatz, anfangsbestand: anfang, protokoll: [...j.protokoll, { zeit: new Date().toISOString(), aktion: 'vorlage.import', nachher: { ansaetze: Object.keys(ansatz).length } }] }, await loadStamm(p.folder))
       }
       vorlageCache.delete(String(p.token))

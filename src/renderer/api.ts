@@ -78,7 +78,7 @@ export function makeApi(host: RendererHost) {
       qifImport: (token: string, zuordnung: Record<string, string>, konfliktNeueNummer: number[]) =>
         call<Ansicht & { anzahl: number; summe: Cent; archiv: string }>('qifImport', { ...b, token, zuordnung, konfliktNeueNummer }),
       vorlageLesen: () => call<(VorlageImport & { token: string }) | null>('vorlageLesen', b),
-      vorlageUebernehmen: (p: { token: string; erstesJahr: number; durchlaufend: string[]; einrichtung: string; kontoBezeichnung: string }) =>
+      vorlageUebernehmen: (p: { token: string; erstesJahr: number; durchlaufend: string[]; einrichtung: string; kontoBezeichnung: string; anfangsbestand?: number }) =>
         call('vorlageUebernehmen', { ...b, ...p }),
       abschlussVorschlag: () => call<AbschlussVorschlag>('abschlussVorschlag', b),
       abschliessen: (eingabe: st.AbschlussEingabe) => call('abschliessen', { ...b, eingabe }),

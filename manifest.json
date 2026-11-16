@@ -709,6 +709,9 @@
           "kontoBezeichnung": {
             "type": "string",
             "maxLength": 100
+          },
+          "anfangsbestand": {
+            "type": "integer"
           }
         },
         "additionalProperties": false
