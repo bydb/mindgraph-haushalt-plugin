@@ -1,0 +1,74 @@
+!Option:MDY
+!Type:Cat
+N4100 Zuwendungen
+DBeiträge Träger
+I
+^
+N5200 Aufw. Sach-, Dienstleistung:5210 Geräte
+DBeschaffung Geräte
+E
+^
+N5200 Aufw. Sach-, Dienstleistung:5220 Medien:Software
+E
+^
+!Option:AutoSwitch
+!Account
+NVS 0000
+TBank
+DVerrechnungskonto
+^
+!Clear:AutoSwitch
+!Type:Bank 
+D1.13.26
+U-7.79
+T-7.79
+CX
+N2026 001
+PErika Mustermann Erstattung
+MReinigungsbürsten Werkstatt
+L5200 Aufw. Sach-, Dienstleistung:5210 Geräte
+^
+D2.22.26
+U-27.00
+T-27.00
+CX
+N2026 002
+PMusterhosting GmbH
+MKdNr 1, ReNr 2, Hosting
+L5200 Aufw. Sach-, Dienstleistung:5220 Medien:Software
+^
+D2.28.26
+U34,736.00
+T34,736.00
+N2026 003
+PLandkreis Musterau
+MBeitrag Lizenzen
+L4100 Zuwendungen
+^
+D12.31.26
+T-1,234.5
+C*
+N2026 004
+PMusterhandel AG
+MRegal
+L5200 Aufw. Sach-, Dienstleistung:5210 Geräte/MINT
+^
+D3.5.26
+T-50.00
+N2026 005
+PSplit GmbH
+SGeräte
+$-30.00
+SSoftware
+$-20.00
+^
+D2.30.26
+T-1.00
+N2026 006
+PFalsches Datum
+^
+!Type:Memorized
+KE
+T-18.36
+PRundfunk
+^

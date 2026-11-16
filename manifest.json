@@ -1,0 +1,944 @@
+{
+  "manifestVersion": 2,
+  "id": "mindgraph-haushalt",
+  "version": "0.1.0",
+  "label": "Haushalt",
+  "description": "Nebenbuch für Einrichtungen, deren Träger offiziell bucht: Haushaltsstellen, Buchungen mit Beleg, Überwachung von Ansatz und Rest, Abgleich mit der Liste des Trägers, Jahresabschluss und Bericht als Excel/PDF. Import aus Quicken (QIF) und aus der bisherigen Haushaltstabelle.",
+  "category": "business",
+  "apiVersion": "^0.2.3",
+  "minAppVersion": "1.3.9",
+  "repo": "https://github.com/bydb/mindgraph-haushalt-plugin",
+  "author": {
+    "name": "Jochen Leeder",
+    "url": "https://mindgraph-notes.de"
+  },
+  "icon": {
+    "text": "§",
+    "color": "#1d4ed8"
+  },
+  "entrypoints": {
+    "main": "main.js",
+    "renderer": "renderer.js",
+    "styles": "styles.css"
+  },
+  "capabilities": [
+    "vault.read",
+    "vault.write",
+    "pdf.render",
+    "dialog"
+  ],
+  "actions": [
+    {
+      "id": "mindgraph-haushalt.load",
+      "label": "Daten laden",
+      "requiredCapabilities": [
+        "vault.read"
+      ],
+      "isWrite": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.saveStamm",
+      "label": "Einrichtung speichern",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "stamm": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.jahrAnlegen",
+      "label": "Haushaltsjahr anlegen",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "anfangsbestand": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.buchung",
+      "label": "Buchung speichern",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "eingabe": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.vormerkungLoeschen",
+      "label": "Vormerkung löschen",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.zurueckziehen",
+      "label": "Buchung zurückziehen",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "grund": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.stornieren",
+      "label": "Buchung stornieren",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "grund": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "datum": {
+            "type": "string",
+            "maxLength": 10
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.anordnen",
+      "label": "Vormerkungen anordnen",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "ids": {
+            "type": "array",
+            "maxItems": 2000,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.abhaken",
+      "label": "Vom Kreis gebucht abhaken",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "abhaken": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.abhakenAufheben",
+      "label": "Haken entfernen",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.belegAnhaengen",
+      "label": "Beleg anhängen",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write",
+        "dialog"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.ansatz",
+      "label": "Ansatz setzen",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "stelleId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "betrag": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.aenderung",
+      "label": "Ansatzänderung erfassen",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "eingabe": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.aenderungEntfernen",
+      "label": "Ansatzänderung entfernen",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.anfangsbestand",
+      "label": "Anfangsbestand setzen",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "betrag": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.qifLesen",
+      "label": "Quicken-Datei lesen",
+      "requiredCapabilities": [
+        "vault.read",
+        "dialog"
+      ],
+      "isWrite": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.qifPlan",
+      "label": "Quicken-Import planen",
+      "requiredCapabilities": [
+        "vault.read"
+      ],
+      "isWrite": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "zuordnung": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.qifImport",
+      "label": "Quicken-Import übernehmen",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "zuordnung": {
+            "type": "object"
+          },
+          "konfliktNeueNummer": {
+            "type": "array",
+            "maxItems": 5000,
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.vorlageLesen",
+      "label": "Haushaltstabelle lesen",
+      "requiredCapabilities": [
+        "vault.read",
+        "dialog"
+      ],
+      "isWrite": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.vorlageUebernehmen",
+      "label": "Haushaltstabelle übernehmen",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "erstesJahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "durchlaufend": {
+            "type": "array",
+            "maxItems": 2000,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          },
+          "einrichtung": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "kontoBezeichnung": {
+            "type": "string",
+            "maxLength": 100
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.abschlussVorschlag",
+      "label": "Abschluss vorbereiten",
+      "requiredCapabilities": [
+        "vault.read"
+      ],
+      "isWrite": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.abschliessen",
+      "label": "Jahr abschließen",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "eingabe": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.entsperren",
+      "label": "Jahr entsperren",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "grund": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.berichtXlsx",
+      "label": "Bericht als Excel",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write",
+        "dialog"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "von": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "bis": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "mitFolgeansatz": {
+            "type": "boolean"
+          },
+          "speichernUnter": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.berichtPdf",
+      "label": "Bericht als PDF",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write",
+        "dialog",
+        "pdf.render"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "von": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "bis": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "mitFolgeansatz": {
+            "type": "boolean"
+          },
+          "speichernUnter": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mindgraph-haushalt.buchungenCsv",
+      "label": "Buchungen als CSV",
+      "requiredCapabilities": [
+        "vault.read",
+        "vault.write",
+        "dialog"
+      ],
+      "isWrite": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "jahr": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "speichernUnter": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  ],
+  "ui": {
+    "workspaceTabs": [
+      {
+        "tabId": "main",
+        "label": "Haushalt",
+        "icon": "M3 21h18 M5 21V10 M9 21V10 M15 21V10 M19 21V10 M2 10l10-6 10 6z"
+      }
+    ]
+  },
+  "privacy": {
+    "containsPersonalData": true,
+    "localOnly": true
+  }
+}

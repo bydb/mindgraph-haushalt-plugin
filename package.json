@@ -1,0 +1,27 @@
+{
+  "name": "mindgraph-haushalt-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Haushalt: Nebenbuch für Einrichtungen, deren Träger offiziell bucht — Haushaltsstellen, Belege, Überwachung, Abgleich, Jahresabschluss",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "keygen:dev": "node scripts/keygen-dev.mjs",
+    "pack": "node scripts/pack.mjs"
+  },
+  "dependencies": {
+    "fflate": "0.8.3",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "esbuild": "^0.25.0",
+    "tar": "^7.5.19",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.12"
+  }
+}
